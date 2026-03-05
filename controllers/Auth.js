@@ -1,12 +1,15 @@
 const User = require("../models/User");
 const OTP = require("../models/OTP");
 const otpGenerator = require("otp-generator");
+const mailSender = require("../utils/mailSender");
+const { passwordUpdated } = require("../mail/templates/passwordUpdate");
+const Profile = require("../models/Profile");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 //sendotp
 
-exports.sendOTP = async(req,res) => {
+exports.sendotp = async(req,res) => {
 
     try{
         //fetch email form request body
@@ -31,11 +34,13 @@ exports.sendOTP = async(req,res) => {
             specialChars:false
         });
 
-        console.log("otp generated", otp);
-
         //check unique otp or not
 
-        const result = await otp.findOne({otp: otp});
+        const result = await OTP.findOne({otp: otp});
+        // console.log("otp generated", otp);
+        console.log("Result is Generate OTP Func");
+		console.log("OTP", otp);
+		console.log("Result", result);
 
         while(result) {
             otp = otpGenerator.generate(6, {
@@ -71,7 +76,7 @@ exports.sendOTP = async(req,res) => {
 
 //signup
 
-exports.signUp = async (req,res) => {
+exports.signup = async (req,res) => {
     try{
 
         //data fetch form req body
@@ -111,15 +116,16 @@ exports.signUp = async (req,res) => {
         }
 
         //find most recent otp for the user
-        const recentOtp = await OTP.find({email}).Sort({createdAt:-1}).limit(1);
-        console.log(recentOtp);
+        const recentOtp = await OTP.find({email}).sort({createdAt:-1}).limit(1);
+        console.log("recent otp is :",recentOtp);
         //validate otp
-        if(recentOtp.length == 0){
+        if(recentOtp.length === 0){
             return res.status(400).json({
                 success:false,
                 message:"OTP not found"
             })
-        } else if(otp !== recentOtp.otp){
+        } else if(otp !== recentOtp[0].otp){
+
             return res.status(400).json({
                 success:false,
                 message:"Invalid OTP"
@@ -129,7 +135,7 @@ exports.signUp = async (req,res) => {
         // hash password
         const hashedPassword = await bcrypt.hash(password, 10);
         //create db entry
-        const pofileDetails = await Profiler.create({
+        const profileDetails = await Profile.create({
             gender:null,
             dateOfBirth:null,
             about:null,
@@ -141,8 +147,8 @@ exports.signUp = async (req,res) => {
             email, 
             contactNumber, 
             password:hashedPassword, 
-            accountType, 
-            additionalDetails:pofileDetails._id,
+            accountType: accountType,
+            additionalDetails:profileDetails._id,
             image:`https://api.dicebear.com/9.x/initials/svg?seed=${firstName} ${lastName}`,
         })
 
@@ -154,6 +160,7 @@ exports.signUp = async (req,res) => {
             })
     }
     catch(error){
+        console.log(error);
         return res.status(500).json({
             success:false,
             message:"User Cannot be registered. Please try again"
@@ -189,10 +196,10 @@ exports.login = async(req,res) => {
             const payload = {
                 email: user.email,
                 id: user._id,
-                accountType: user.accountType,
+                role: user.role,
             } 
             const token = jwt.sign(payload, process.env.JWT_SECRET, {
-                expiresIn:"2h",
+                expiresIn:"24h",
             });
             user.token  = token;
             user.password = undefined;
@@ -207,7 +214,8 @@ exports.login = async(req,res) => {
             res.cookie("token",token, options).status(200).json({
                 success:true,
                 token,
-                user,message:"Logged in Successfully"
+                user,
+                message:"Logged in Successfully"
             })
         } else {
             return res.status(401).json({
@@ -230,11 +238,72 @@ exports.login = async(req,res) => {
 //changepassword
 
 exports.changePassword = async(req, res) => {
+    try{
+
     //get data form request body
+	const userDetails = await User.findById(req.user.id);
     //get oldpassword, newpassword,confirm newpassword
+	const { oldPassword, newPassword, confirmNewPassword } = req.body;
     //validations
+    const isPasswordMatch = await bcrypt.compare(
+        oldPassword,
+        userDetails.password
+    );
+    if (!isPasswordMatch) {
+        // If old password does not match, return a 401 (Unauthorized) error
+        return res
+            .status(401)
+            .json({ success: false, message: "The password is incorrect" });
+    }
+    // Match new password and confirm new password
+    if (newPassword !== confirmNewPassword) {
+        // If new password and confirm new password do not match, return a 400 (Bad Request) error
+        return res.status(400).json({
+            success: false,
+            message: "The password and confirm password does not match",
+        });
+    }
     //update password in db
+    const encryptedPassword = await bcrypt.hash(newPassword, 10);
+    const updatedUserDetails = await User.findByIdAndUpdate(
+        req.user.id,
+        { password: encryptedPassword },
+        { new: true }
+    );
     //send mail -- password updated
+    try {
+        const emailResponse = await mailSender(
+            updatedUserDetails.email,
+            passwordUpdated(
+                updatedUserDetails.email,
+                `Password updated successfully for ${updatedUserDetails.firstName} ${updatedUserDetails.lastName}`
+            )
+        );
+        console.log("Email sent successfully:", emailResponse.response);
+    } catch (error) {
+        // If there's an error sending the email, log the error and return a 500 (Internal Server Error) error
+        console.error("Error occurred while sending email:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error occurred while sending email",
+            error: error.message,
+        });
+    }
     //return response
-} 
+    return res
+			.status(200)
+			.json({ success: true, message: "Password updated successfully" });
+
+    }catch(error){
+        // If there's an error updating the password, log the error and return a 500 (Internal Server Error) error
+		console.error("Error occurred while updating password:", error);
+		return res.status(500).json({
+			success: false,
+			message: "Error occurred while updating password",
+			error: error.message,
+		});
+
+    }
+    
+};
 
