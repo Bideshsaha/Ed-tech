@@ -59,7 +59,7 @@ exports.deleteAccount = async(req, res) => {
             });
         }
         //delete profile
-        await Profile.findByIdAndDelete({_id: user.userDetails});
+        await Profile.findByIdAndDelete({_id: user.additionalDetails});
         //  todo: unenroll user from all courses
         //delete user
         await User.findByIdAndDelete({_id:id});

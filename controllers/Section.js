@@ -80,6 +80,7 @@ exports.deleteSection = async (req, res) => {
     try{
         //get id
         const {sectionId} = req.params;
+        // const {sectionId} = req.body;
         //use findByIdAndDelete
         await Section.findByIdAndDelete(sectionId);
         //TODO: do we need to  delete the entry form the course schema ??

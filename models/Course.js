@@ -18,7 +18,7 @@ const courseSchema = new mongoose.Schema({
     whatYouWillLearn: {
         type:String,
     },
-    courseConttent: [
+    courseContent: [
         {
             type:mongoose.Schema.Types.ObjectId,
             ref:"Section",
